@@ -5,17 +5,16 @@ from bs4 import BeautifulSoup
 from collections import OrderedDict
 import codecs, win_unicode_console
 
-#REPEAT THIS WHOLE SPIDER 10 TIMES PER PAGE (THERE ARE 10 PAGES IN TOTAL AND CAN'T CRAWL THEM CONCURRENTLY)
 class MySpider(Spider):
     name = 'spain_all_pages'
     url = 'http://www.squawka.com/match-results'
-    page = 10
+    page = 10 #total number of pages on the link/last page we want to scrape from
     match_links = list()
-    fields_row = 4 #row of columns (fields) of table
-    first_fields_column = 1 #column of a first field of table
+    fields_row = 1 #row of column names (fields) of table
+    first_fields_column = 1 #column of a first column (field) of table
     fields_amount = 14 #number of columns (fields)
     last_fields_column = first_fields_column + fields_amount - 1
-    input_row = 5
+    input_row = 2 #first input row (we put the list of fields into the first row of the spreadsheet first)
     
     #scheme: do a request to initial url -> execute Lua script 'select La Liga, 2016/17 from the dropdown menus; collect all the links to pages with actual match data (for all pages)' -> after collection, go to each (one by one) 
     #start_requests() sets up the spanish parameters, parser just goes to links
@@ -59,13 +58,11 @@ class MySpider(Spider):
             """  
             
             return match_list_script
-        
+       
         match_list_scripts = []
         win_unicode_console.enable()
         for page_number in range(self.page):
             match_list_scripts.append(return_match_list_script(str(page_number+1)))
-        
-        #match_list_scripts.append(return_match_list_script(str(self.page)))
         
         for match_list_script in match_list_scripts:    
             yield SplashRequest(self.url, self.parse_match_list,
@@ -104,21 +101,13 @@ class MySpider(Spider):
           return splash:html()
         end
         """           
-        '''
-        button_names = response.xpath("//a[@class='pageing_text_arrow']/text()").extract()
-        start_excel_input = False
-        for button_name in button_names:
-            if 'Next' in button_name:
-                start_excel_input = True
-                break
-        '''
         
         current_page_number = response.xpath("//div[@id='sq-pagination'][1]//span[contains(@class, 'current')]/text()").extract()[0]
         start_excel_input = False
         if int(current_page_number) == self.page:
             start_excel_input = True
         
-        if start_excel_input:
+        if start_excel_input: #start following match links in self.match_links and downloading data from them one by one
             for match_link in self.match_links:
                 #self.logger.info("The link is: %s", match_link)
                 yield SplashRequest(match_link, self.parse_match,
@@ -133,32 +122,8 @@ class MySpider(Spider):
                     endpoint = '/execute'
                     #slot_policy=scrapy_splash.SlotPolicy.PER_DOMAIN,  # optional
                 ) 
-        #else:
-        #    page = response.xpath("//div[@id='sq-pagination']")[0].xpath(".//span[contains(@class, 'current')]/following-sibling::a[@class='page-numbers'][1]/text()").extract()[0]
-        #    js = """splash:evaljs("document.querySelector(\\"a[href='http://www.squawka.com/match-results?pg="""+page+"""']\\").click()")"""
-        #    print("gonna call start_requests now")
-        #    self.start_requests(js_code = js)
         
     def parse_match(self, response):
-        '''openpyxl API:
-        opening workbook: workbook = openpyxl.load_workbook(workbook, keep_vba = True/False)
-        opening worksheet: worksheet = workbook.get_sheet_by_name(worksheet_name)
-        getting data: worksheet.cell(row,column).value
-        setting data: worksheet.cell(row,column).value = data
-        
-        spreadsheet API:
-        __init__(workbook, worksheet, keep_vba=False)
-        get_data(worksheet, row_start, column_start, incr_step, number_of_incrs, incr_along)
-        set_data(data, worksheet, row_start, column_start, incr_step, incr_along, workbook = "", keep_vba=False) 
-        save(workbook="", keep_vba=False)
-        
-        Useful links on Scrapy:
-        https://stackoverflow.com/questions/35720323/scrapyjs-splash-click-controller-button
-        https://stackoverflow.com/questions/35052999/using-scrapyjs-crawl-onclick-pages-by-splash
-        https://github.com/scrapinghub/splash/issues/200
-        https://github.com/scrapy-plugins/scrapy-splash/issues/27
-        '''
-        
         player_ids = {}
         team_ids = {}        
         
@@ -261,7 +226,7 @@ class MySpider(Spider):
                         print("Teams: "+str(team_ids))       
         
         #putting data into excel spreadsheet                      
-        squawka_datasheet = spreadsheet("C:/Users/HP10/AppData/Local/Programs/Python/Python35/Lib/site-packages/scrapy/projects/squawka/squawka/excel/squawka_data_"+str(self.page)+".xlsx", "Spain") 
+        squawka_datasheet = spreadsheet("C:/Users/HP10/AppData/Local/Programs/Python/Python35/Lib/site-packages/scrapy/projects/squawka/squawka/excel/squawka_Spain_2016_17.xlsx","Spain")    #squawka_data_+str(self.page)+".xlsx", "Spain") 
         
         #a list of column names
         field_names = squawka_datasheet.get_data("Spain", self.fields_row, self.first_fields_column, 1, self.fields_amount, "row")
@@ -296,31 +261,7 @@ class MySpider(Spider):
                                     #print(field_name+": -")
                                 column_increment += 1
                             self.input_row += 1
-                            #print("=========NEXT EVENT==========")
+                            print("=========NEXT EVENT==========")
         
         print("===============")
         squawka_datasheet.save()
-        
-        '''
-        #recording number of last row to use it in the next data download
-        max_len = 0        
-        for key in data.keys():
-            max_len = max(len(data[key]["home_detailed"]), len(data[key]["away_detailed"]), max_len)
-        
-        #populating the beginning columns with match number and team names
-        for team_id in team_ids.keys():
-            for i in range(max_len):
-                squawka_datasheet.set_data(match_date, "Spain", self.input_row+i, 1) #PUT DATE OF MATCH AS FIRST COLUMN INSTEAD
-                if team_ids[team_id][1] == "home":
-                    squawka_datasheet.set_data(team_ids[team_id][0], "Spain", self.input_row+i, 2)
-                elif team_ids[team_id][1] == "away":
-                    squawka_datasheet.set_data(team_ids[team_id][0], "Spain", self.input_row+i, 3)        
-        
-        
-        #incrementing the self.input_row 
-        self.input_row = self.input_row + max_len   
-        '''
-        '''
-        from scrapy.shell import inspect_response
-        inspect_response(response, self)
-        '''
