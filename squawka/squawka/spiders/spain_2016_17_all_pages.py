@@ -6,7 +6,7 @@ from collections import OrderedDict
 import codecs, win_unicode_console
 
 class MySpider(Spider):
-    name = 'spain_all_pages'
+    name = 'spain_2016_17_all_pages'
     url = 'http://www.squawka.com/match-results'
     page = 10 #total number of pages on the link/last page we want to scrape from
     match_links = list()
