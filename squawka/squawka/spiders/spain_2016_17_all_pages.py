@@ -9,19 +9,19 @@ class MySpider(Spider):
     name = 'spain_2016_17_all_pages'
     url = 'http://www.squawka.com/match-results'
     page = 10 #total number of pages on the link/last page we want to scrape from
-    match_links = list()
-    fields_row = 1 #row of column names (fields) of table
-    first_fields_column = 1 #column of a first column (field) of table
-    fields_amount = 14 #number of columns (fields)
-    last_fields_column = first_fields_column + fields_amount - 1
-    input_row = 2 #first input row (we put the list of fields into the first row of the spreadsheet first)
+    matchLinks = list()
+    fieldsRow = 1 #row of column names (fields) of table
+    firstFieldsColumn = 1 #column of a first column (field) of table
+    fieldsAmount = 14 #number of columns (fields)
+    lastFieldsColumn = firstFieldsColumn + fieldsAmount - 1
+    inputRow = 2 #first input row (we put the list of fields into the first row of the spreadsheet first)
     
     #scheme: do a request to initial url -> execute Lua script 'select La Liga, 2016/17 from the dropdown menus; collect all the links to pages with actual match data (for all pages)' -> after collection, go to each (one by one) 
     #start_requests() sets up the spanish parameters, parser just goes to links
     def start_requests(self):
-        def return_match_list_script(page_number):
+        def returnMatchListScript(pageNumber):
             
-            match_list_script = """
+            matchListScript = """
             function main(splash, args)
               splash.private_mode_enabled = False
               
@@ -30,7 +30,6 @@ class MySpider(Spider):
               assert(splash:wait(5))
               
               splash:evaljs("document.querySelector('div#sq-pagination span.current').nextElementSibling.click()")
-
               assert(splash:wait(3))
               
               splash:evaljs("document.querySelector(\\"select[id='league-filter-list'] option[value='23']\\").selected = true")
@@ -49,7 +48,7 @@ class MySpider(Spider):
               
               assert(splash:wait(2))
               
-              assert(splash:go("http://www.squawka.com/match-results?pg="""+page_number+""""))
+              assert(splash:go("http://www.squawka.com/match-results?pg="""+pageNumber+""""))
               
               assert(splash:wait(3))
               
@@ -57,19 +56,19 @@ class MySpider(Spider):
             end
             """  
             
-            return match_list_script
+            return matchListScript
        
-        match_list_scripts = []
+        matchListScripts = []
         win_unicode_console.enable()
-        for page_number in range(self.page):
-            match_list_scripts.append(return_match_list_script(str(page_number+1)))
+        for pageNumber in range(self.page):
+            matchListScripts.append(returnMatchListScript(str(pageNumber+1)))
         
-        for match_list_script in match_list_scripts:    
-            yield SplashRequest(self.url, self.parse_match_list,
+        for matchListScript in matchListScripts:
+            yield SplashRequest(self.url, self.parseMatchList,
                 args={
-                    'lua_source': match_list_script
+                    'lua_source': matchListScript
                     # optional; parameters passed to Splash HTTP API
-                    #'wait': 2,
+                    # 'wait': 2,
                     # 'url' is prefilled from request url
                     # 'http_method' is set to 'POST' for POST requests
                     # 'body' is set to request body for POST requests
@@ -78,11 +77,11 @@ class MySpider(Spider):
                 #slot_policy=scrapy_splash.SlotPolicy.PER_DOMAIN,  # optional
             )            
         
-    def parse_match_list(self, response):
+    def parseMatchList(self, response):
         #this function gets all the match links from response and puts them into match_links; then yields separate requests for each 
-        self.match_links += response.xpath("//table[@class='fixture-results-table']/tbody/tr[@class='match-today']/td[@class='match-centre']/a/@href").extract()
+        self.matchLinks += response.xpath("//table[@class='fixture-results-table']/tbody/tr[@class='match-today']/td[@class='match-centre']/a/@href").extract()
         
-        match_script = """
+        matchScript = """
         function main(splash, args)
           splash.private_mode_enabled = False
           
@@ -102,17 +101,17 @@ class MySpider(Spider):
         end
         """           
         
-        current_page_number = response.xpath("//div[@id='sq-pagination'][1]//span[contains(@class, 'current')]/text()").extract()[0]
-        start_excel_input = False
-        if int(current_page_number) == self.page:
-            start_excel_input = True
+        currentPageNumber = response.xpath("//div[@id='sq-pagination'][1]//span[contains(@class, 'current')]/text()").extract()[0]
+        startExcelInput = False
+        if int(currentPageNumber) == self.page:
+            startExcelInput = True
         
-        if start_excel_input: #start following match links in self.match_links and downloading data from them one by one
-            for match_link in self.match_links:
+        if startExcelInput: #start following match links in self.match_links and downloading data from them one by one
+            for matchLink in self.matchLinks:
                 #self.logger.info("The link is: %s", match_link)
-                yield SplashRequest(match_link, self.parse_match,
+                yield SplashRequest(matchLink, self.parseMatch,
                     args={
-                        'lua_source': match_script
+                        'lua_source': matchScript
                         # optional; parameters passed to Splash HTTP API
                         # 'wait': 2,
                         # 'url' is prefilled from request url
@@ -123,29 +122,26 @@ class MySpider(Spider):
                     #slot_policy=scrapy_splash.SlotPolicy.PER_DOMAIN,  # optional
                 ) 
         
-    def parse_match(self, response):
-        player_ids = {}
-        team_ids = {}        
-        
-        processed_xml = BeautifulSoup(str(response.body)[2:-1], "xml")
+    def parseMatch(self, response):
+        playerIds, teamIds, processedXml = {}, {}, BeautifulSoup(str(response.body)[2:-1], "xml")
         
         #player ids
-        for each in processed_xml.select("players player"):
-            player_ids[each.get("id")] = [codecs.escape_decode(each.find("name").get_text().encode("latin-1"))[0].decode("utf-8"), each.get("team_id")]         
+        for each in processedXml.select("players player"):
+            playerIds[each.get("id")] = [codecs.escape_decode(each.find("name").get_text().encode("latin-1"))[0].decode("utf-8"), each.get("team_id")]
             
         #team ids
-        for each in processed_xml.select("data_panel game team"):
+        for each in processedXml.select("data_panel game team"):
             if each.find("state").get_text() == "home":
-                home_team = codecs.escape_decode(each.find("short_name").get_text().encode("latin-1"))[0].decode("utf-8")
+                homeTeam = codecs.escape_decode(each.find("short_name").get_text().encode("latin-1"))[0].decode("utf-8")
             elif each.find("state").get_text() == "away": 
-                away_team = codecs.escape_decode(each.find("short_name").get_text().encode("latin-1"))[0].decode("utf-8")
-            team_ids[each.get("id")] = [codecs.escape_decode(each.find("short_name").get_text().encode("latin-1"))[0].decode("utf-8"), each.find("state").get_text()]
+                awayTeam = codecs.escape_decode(each.find("short_name").get_text().encode("latin-1"))[0].decode("utf-8")
+            teamIds[each.get("id")] = [codecs.escape_decode(each.find("short_name").get_text().encode("latin-1"))[0].decode("utf-8"), each.find("state").get_text()]
         
         #setting up the main data container
         data = {
-            'date': processed_xml.find("squawka").get("date"), #match date
-            'home': home_team, #home team name
-            'away': away_team, #away team name             
+            'date': processedXml.find("squawka").get("date"), #match date
+            'home': homeTeam, #home team name
+            'away': awayTeam, #away team name
             'goals': {}, #type, player, is_own, mins
             'shots': {}, #type, player, mins
             'shots_on_target': {}, #type, player, mins
@@ -168,100 +164,126 @@ class MySpider(Spider):
         
         for key in data.keys():       
             if key in ['goals', 'shots', 'shots_on_target']:
-                param_name = 'goals_attempts'
+                paramName = 'goals_attempts'
             else:
-                param_name = key  
+                paramName = key
                 
             if key not in ['date', 'home', 'away']:
-                for event in processed_xml.select(param_name+' event'):
+                for event in processedXml.select(paramName+' event'):
                     try: #appending data from xml to data
                         if key == "shots":
-                            data[key][team_ids[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1, 'player': player_ids[event.get('player_id')][0], 'type': event.get('type'), "is_own": event.has_attr("is_own") }) 
+                            data[key][teamIds[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1,
+                                'player': playerIds[event.get('player_id')][0], 'type': event.get('type'), "is_own": event.has_attr("is_own") })
                             if not event.has_attr("is_own"):
-                                data[key][team_ids[event.get("team_id")][1]+"_short"] += 1
+                                data[key][teamIds[event.get("team_id")][1]+"_short"] += 1
                         if key == "shots_on_target" and event.get("type") in ["save", "wood_work", "goal"]:
-                            data[key][team_ids[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1, 'player': player_ids[event.get('player_id')][0], 'type': event.get('type'), "is_own": event.has_attr("is_own") }) 
+                            data[key][teamIds[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1,
+                                'player': playerIds[event.get('player_id')][0], 'type': event.get('type'), "is_own": event.has_attr("is_own") })
                             if not event.has_attr("is_own"):
-                                data[key][team_ids[event.get("team_id")][1]+"_short"] += 1 
+                                data[key][teamIds[event.get("team_id")][1]+"_short"] += 1
                         elif key == 'goals' and event.get("type") == "goal":
-                            data[key][team_ids[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1, 'player': player_ids[event.get('player_id')][0], 'type': event.get('type'), "is_own": event.has_attr("is_own") })
-                            data[key][team_ids[event.get("team_id")][1]+"_short"] += 1
+                            data[key][teamIds[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1,
+                                'player': playerIds[event.get('player_id')][0], 'type': event.get('type'), "is_own": event.has_attr("is_own") })
+                            data[key][teamIds[event.get("team_id")][1]+"_short"] += 1
                         elif key == "headed_duals":
-                            data[key][team_ids[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1, 'player': player_ids[event.get('player_id')][0], 'opponent': player_ids[event.find("otherplayer").get_text()][0], 'type': event.get("action_type") })
-                            data[key][team_ids[event.get("team_id")][1]+"_short"] += 1
+                            data[key][teamIds[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1,
+                                'player': playerIds[event.get('player_id')][0], 'opponent': playerIds[event.find("otherplayer").get_text()][0],
+                                'type': event.get("action_type") })
+                            data[key][teamIds[event.get("team_id")][1]+"_short"] += 1
                         elif key == "interceptions":
-                            data[key][team_ids[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1, 'player': player_ids[event.get('player_id')][0], 'headed': bool(event.find("headed")) })
-                            data[key][team_ids[event.get("team_id")][1]+"_short"] += 1
+                            data[key][teamIds[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1,
+                                'player': playerIds[event.get('player_id')][0], 'headed': bool(event.find("headed")) })
+                            data[key][teamIds[event.get("team_id")][1]+"_short"] += 1
                         elif key == "clearances":
-                            data[key][team_ids[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1, 'player': player_ids[event.get('player_id')][0], 'headed': bool(event.find("headed").get_text()) })
-                            data[key][team_ids[event.get("team_id")][1]+"_short"] += 1 
+                            data[key][teamIds[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1,
+                                'player': playerIds[event.get('player_id')][0], 'headed': bool(event.find("headed").get_text()) })
+                            data[key][teamIds[event.get("team_id")][1]+"_short"] += 1
                         elif key == "tackles":
-                            data[key][team_ids[event.find("tackler_team").get_text()][1]+"_detailed"].append({'mins': int(event.get("mins"))+1, 'player': player_ids[event.find("tackler").get_text()][0], "type": event.get("type"), 'opponent': player_ids[event.get('player_id')][0] })
-                            data[key][team_ids[event.find("tackler_team").get_text()][1]+"_short"] += 1
+                            data[key][teamIds[event.find("tackler_team").get_text()][1]+"_detailed"].append({'mins': int(event.get("mins"))+1,
+                                'player': playerIds[event.find("tackler").get_text()][0], "type": event.get("type"),
+                                'opponent': playerIds[event.get('player_id')][0] })
+                            data[key][teamIds[event.find("tackler_team").get_text()][1]+"_short"] += 1
                         elif key == "takeons":
-                            data[key][team_ids[event.get("other_team")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1, 'player': player_ids[event.get('other_player')][0], 'opponent': player_ids[event.get('player_id')][0], 'type': event.get('type') })
-                            data[key][team_ids[event.get("other_team")][1]+"_short"] += 1
+                            data[key][teamIds[event.get("other_team")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1,
+                                'player': playerIds[event.get('other_player')][0], 'opponent': playerIds[event.get('player_id')][0],
+                                'type': event.get('type') })
+                            data[key][teamIds[event.get("other_team")][1]+"_short"] += 1
                         elif key == "blocked_events":
-                            data[key][team_ids[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1, 'player': player_ids[event.get('player_id')][0], 'type': event.get('type') })
+                            data[key][teamIds[event.get("team_id")][1]+"_detailed"].append({'mins': int(event.get("mins"))+1,
+                                'player': playerIds[event.get('player_id')][0], 'type': event.get('type') })
                             if event.find("shot") != None:
-                                data[key][team_ids[event.get("team_id")][1]+"_detailed"][-1]['shot'] = bool(event.find("shot").get_text())
+                                data[key][teamIds[event.get("team_id")][1]+"_detailed"][-1]['shot'] = bool(event.find("shot").get_text())
                             if event.find("headed") != None:
-                                data[key][team_ids[event.get("team_id")][1]+"_detailed"][-1]['headed'] = bool(event.find("headed").get_text())
+                                data[key][teamIds[event.get("team_id")][1]+"_detailed"][-1]['headed'] = bool(event.find("headed").get_text())
                             if event.get("type") == "blocked_shot" and event.has_attr("shot_player"):
-                                data[key][team_ids[event.get("team_id")][1]+"_detailed"][-1]['shot_player'] = player_ids[event.get("shot_player")][0]
-                            data[key][team_ids[event.get("team_id")][1]+"_short"] += 1
+                                data[key][teamIds[event.get("team_id")][1]+"_detailed"][-1]['shot_player'] = playerIds[event.get("shot_player")][0]
+                            data[key][teamIds[event.get("team_id")][1]+"_short"] += 1
                         elif key == "fouls":
                             if event.find("otherplayer").get_text() == '0':
                                 opponent = "-"
                             else:
-                                opponent = player_ids[event.find("otherplayer").get_text()][0]  
-                            data[key][team_ids[event.get("team")][1]+"_detailed"].append({'mins': int(event.get('mins'))+1, 'player': player_ids[event.get('player_id')][0], 'opponent': opponent })
-                            data[key][team_ids[event.get("team")][1]+"_short"] += 1
+                                opponent = playerIds[event.find("otherplayer").get_text()][0]
+                            data[key][teamIds[event.get("team")][1]+"_detailed"].append({'mins': int(event.get('mins'))+1,
+                                'player': playerIds[event.get('player_id')][0], 'opponent': opponent })
+                            data[key][teamIds[event.get("team")][1]+"_short"] += 1
                         elif key == "cards":
-                            data[key][team_ids[event.get("team")][1]+"_detailed"].append({'mins': int(event.get('mins'))+1, 'player': player_ids[event.get('player_id')][0], 'card': event.find("card").get_text() })
-                            data[key][team_ids[event.get("team")][1]+"_short"] += 1
+                            data[key][teamIds[event.get("team")][1]+"_detailed"].append({'mins': int(event.get('mins'))+1,
+                                'player': playerIds[event.get('player_id')][0], 'card': event.find("card").get_text() })
+                            data[key][teamIds[event.get("team")][1]+"_short"] += 1
                     except KeyError:
                         print("KEY ERROR: "+key+"; event mins: "+event.get("mins"))
-                        print("Match date: "+processed_xml.find("squawka").get("date"))    
-                        print("Teams: "+str(team_ids))       
+                        print("Match date: "+processedXml.find("squawka").get("date"))
+                        print("Teams: "+str(teamIds))
         
         #putting data into excel spreadsheet                      
-        squawka_datasheet = spreadsheet("C:/Users/HP10/AppData/Local/Programs/Python/Python35/Lib/site-packages/scrapy/projects/squawka/squawka/excel/squawka_Spain_2016_17.xlsx","Spain")    #squawka_data_+str(self.page)+".xlsx", "Spain") 
+        squawkaDatasheet = spreadsheet("C:/Users/HP10/AppData/Local/Programs/Python/Python35/Lib/site-packages/scrapy/projects/squawka/squawka/excel/squawka_Spain_2016_17.xlsx","Spain")    #squawka_data_+str(self.page)+".xlsx", "Spain")
         
         #a list of column names
-        field_names = squawka_datasheet.get_data("Spain", self.fields_row, self.first_fields_column, 1, self.fields_amount, "row")
+        fieldNames = squawkaDatasheet.getData("Spain", self.fieldsRow, self.firstFieldsColumn, 1, self.fieldsAmount, "row")
 
-        #populating the spreadsheet with data
-        for event_name in data.keys():
-            print("NEW EVENT NAME: "+event_name)
-            #if event_name not in ['date', 'home', 'away']: 
-            if event_name in ['interceptions','clearances']:
-                for detailed in data[event_name].keys(): #"home_detailed"/"away_detailed"/"home_total"/"away_total"
-                    if detailed in ["home_detailed", "away_detailed"]:                        
-                        for event in data[event_name][detailed]: #{'mins':'25', 'type': 'Possession', ...}
-                            column_increment = 0 
-                            for field_name in field_names:
-                                if field_name in event.keys():    
-                                    squawka_datasheet.set_data(str(event[field_name]), "Spain", self.input_row, self.first_fields_column+column_increment) #inputting 1 value at a time
-                                    #print(field_name+": "+str(event[field_name]))
-                                elif field_name == "total":
-                                    squawka_datasheet.set_data(data[event_name][detailed[:4]+"_short"], "Spain", self.input_row, self.first_fields_column+column_increment)
-                                    #print(field_name+": "+str(data[event_name][detailed[:4]+"_short"]))
-                                elif field_name == "event":
-                                    squawka_datasheet.set_data(event_name, "Spain", self.input_row, self.first_fields_column+column_increment)
-                                    #print(field_name+": "+str(event_name))
-                                elif field_name == "team":
-                                    squawka_datasheet.set_data(data[detailed[:4]], "Spain", self.input_row, self.first_fields_column+column_increment)
-                                    #print(field_name+": "+str(data[detailed[:4]]))
-                                elif field_name in ["home", "away", "date"]:
-                                    squawka_datasheet.set_data(data[field_name], "Spain", self.input_row, self.first_fields_column+column_increment)
-                                    #print(field_name+": "+str(data[field_name]))
-                                else:
-                                    squawka_datasheet.set_data("-", "Spain", self.input_row, self.first_fields_column+column_increment)
-                                    #print(field_name+": -")
-                                column_increment += 1
-                            self.input_row += 1
-                            print("=========NEXT EVENT==========")
-        
+        def saveDataToSpreadsheet():
+            for eventName in data.keys():
+                print("NEW EVENT NAME: "+eventName)
+                if eventName in ["interceptions", "clearances"]:
+                    detailedLoop(eventName) #"home_detailed"/"away_detailed"/"home_total"/"away_total"
+
+        def detailedLoop(eventName):
+            for detailed in data[eventName].keys():  # "home_detailed"/"away_detailed"/"home_total"/"away_total"
+                if detailed in ["home_detailed", "away_detailed"]:
+                    inputLoop(eventName, detailed)
+
+        def inputLoop(eventName, detailed):
+            for event in data[eventName][detailed]:  # {'mins':'25', 'type': 'Possession', ...}
+                columnIncrement = 0
+                for fieldName in fieldNames:
+                    if fieldName in event.keys():
+                        squawkaDatasheet.set_data(str(event[fieldName]), "Spain", self.inputRow,
+                                                   self.firstFieldsColumn + columnIncrement)  # inputting 1 value at a time
+                        # print(field_name+": "+str(event[field_name]))
+                    elif fieldName == "total":
+                        squawkaDatasheet.set_data(data[eventName][detailed[:4] + "_short"], "Spain", self.inputRow,
+                                                   self.firstFieldsColumn + columnIncrement)
+                        # print(field_name+": "+str(data[event_name][detailed[:4]+"_short"]))
+                    elif fieldName == "event":
+                        squawkaDatasheet.set_data(eventName, "Spain", self.inputRow,
+                                                   self.firstFieldsColumn + columnIncrement)
+                        # print(field_name+": "+str(event_name))
+                    elif fieldName == "team":
+                        squawkaDatasheet.set_data(data[detailed[:4]], "Spain", self.inputRow,
+                                                   self.firstFieldsColumn + columnIncrement)
+                        # print(field_name+": "+str(data[detailed[:4]]))
+                    elif fieldName in ["home", "away", "date"]:
+                        squawkaDatasheet.set_data(data[fieldName], "Spain", self.inputRow,
+                                                   self.firstFieldsColumn + columnIncrement)
+                        # print(field_name+": "+str(data[field_name]))
+                    else:
+                        squawkaDatasheet.set_data("-", "Spain", self.inputRow,
+                                                   self.firstFieldsColumn + columnIncrement)
+                        # print(field_name+": -")
+                    columnIncrement += 1
+                self.inputRow += 1
+                print("=========NEXT EVENT==========")
+
+        saveDataToSpreadsheet()
         print("===============")
-        squawka_datasheet.save()
+        squawkaDatasheet.save()
