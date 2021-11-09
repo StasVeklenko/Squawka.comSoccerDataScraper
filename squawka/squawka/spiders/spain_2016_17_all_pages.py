@@ -241,17 +241,6 @@ class MySpider(Spider):
         #a list of column names
         fieldNames = squawkaDatasheet.getData("Spain", self.fieldsRow, self.firstFieldsColumn, 1, self.fieldsAmount, "row")
 
-        def saveDataToSpreadsheet():
-            for eventName in data.keys():
-                print("NEW EVENT NAME: "+eventName)
-                if eventName in ["interceptions", "clearances"]:
-                    detailedLoop(eventName) #"home_detailed"/"away_detailed"/"home_total"/"away_total"
-
-        def detailedLoop(eventName):
-            for detailed in data[eventName].keys():  # "home_detailed"/"away_detailed"/"home_total"/"away_total"
-                if detailed in ["home_detailed", "away_detailed"]:
-                    inputLoop(eventName, detailed)
-
         def inputLoop(eventName, detailed):
             for event in data[eventName][detailed]:  # {'mins':'25', 'type': 'Possession', ...}
                 columnIncrement = 0
@@ -283,6 +272,17 @@ class MySpider(Spider):
                     columnIncrement += 1
                 self.inputRow += 1
                 print("=========NEXT EVENT==========")
+        
+        def detailedLoop(eventName):
+            for detailed in data[eventName].keys():  # "home_detailed"/"away_detailed"/"home_total"/"away_total"
+                if detailed in ["home_detailed", "away_detailed"]:
+                    inputLoop(eventName, detailed)
+        
+        def saveDataToSpreadsheet():
+            for eventName in data.keys():
+                print("NEW EVENT NAME: "+eventName)
+                if eventName in ["interceptions", "clearances"]:
+                    detailedLoop(eventName) #"home_detailed"/"away_detailed"/"home_total"/"away_total"
 
         saveDataToSpreadsheet()
         print("===============")
